@@ -6,5 +6,8 @@ in pkgs.mkShell {
     nixopsUnstable
     zola
   ];
-  shellHook = "";
+
+  # Export all environment variables available in the .env file, so they can
+  # be used by NixOps.
+  shellHook = "while read -r line; do export $line; done < .env";
 }
