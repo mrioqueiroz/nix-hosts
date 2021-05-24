@@ -27,7 +27,13 @@ in {
     fileSystems."/".device = "/dev/disk/by-label/nixos";
     security.sudo.wheelNeedsPassword = false;
     security.acme = { email = (getEnv "ADMIN_EMAIL"); acceptTerms = true; };
-    networking.firewall.allowedTCPPorts = [ 80 443 ];
+    networking.firewall = {
+      allowedTCPPorts = [ 80 443 ];
+      pingLimit = "--limit 1/minute --limit-burst 5";
+      extraCommands = ''
+        iptables -A INPUT -m conntrack --ctstate INVALID -j DROP
+      '';
+    };
     time.timeZone = "America/Sao_Paulo";
 
     users = {
@@ -57,9 +63,8 @@ in {
         blacklist_threshold = 10;
       };
 
-      fail2ban = {
-        enable = true;
-      };
+      fail2ban.enable = true;
+      searx.enable = true;
 
       prometheus = {
         enable = true;
@@ -67,6 +72,9 @@ in {
           node = {
             enable = true;
             enabledCollectors = [ "systemd" ];
+          };
+          nginx = {
+            enable = true;
           };
         };
         scrapeConfigs = [
@@ -86,10 +94,19 @@ in {
               }
             ];
           }
+          {
+            job_name = "nginx";
+            static_configs = [
+              {
+                targets = [ "localhost:9113" ];
+              }
+            ];
+          }
         ];
       };
 
-      # After deployed, add the dashboards 1860 abd 405 and you are good to go.
+      # After deployed, add the dashboards 1860, 6927, abd 405 and you are good
+      # to go.
       grafana = {
         enable = true;
         # Despite having defined the credentials here, I still had to set admin
@@ -119,6 +136,8 @@ in {
 
       nginx = {
         enable = true;
+        recommendedOptimisation = true;
+        recommendedGzipSettings = true;
         virtualHosts = {
           "mrioqueiroz.com" = {
             default = true;
@@ -145,6 +164,16 @@ in {
             locations."/".proxyPass = "http://localhost:3000";
             addSSL = true;
             enableACME = true;
+          };
+          "searx.mrioqueiroz.com" = {
+            locations."/".proxyPass = "http://localhost:8888";
+            addSSL = true;
+            enableACME = true;
+          };
+          # Close connection without response if trying to access the website
+          # using the IP address.
+          "${(getEnv "TARGET_IP")}" = {
+            locations."/".return = "444";
           };
         };
       };
