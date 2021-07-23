@@ -4,8 +4,16 @@ with builtins;
 
 let
   pkgs = import ./nix { };
+  home-manager = builtins.fetchGit {
+    url = "https://github.com/nix-community/home-manager.git";
+    rev = "148d85ee8303444fb0116943787aa0b1b25f94df";
+    ref = "release-21.05";
+  };
 in {
   network = { description = "nix-hosts"; };
+  defaults = {
+    imports = [ (import "${home-manager}/nixos") ];
+  };
   server = { ... }: {
     deployment = {
       # The keys are defined bellow. If set to true (the default value), we 
@@ -31,6 +39,7 @@ in {
       allowedTCPPorts = [ 80 443 ];
       pingLimit = "--limit 1/minute --limit-burst 5";
       extraCommands = ''
+        iptables -A INPUT -s ${getEnv "LOCAL_IP"} -j ACCEPT
         iptables -A INPUT -m conntrack --ctstate INVALID -j DROP
       '';
     };
@@ -46,25 +55,66 @@ in {
           openssh.authorizedKeys.keys = (import ./keys.nix);
         };
       };
+      # This will be used for distributed builds.
+      users = {
+        root = {
+          isSystemUser = true;
+          openssh.authorizedKeys.keys = (import ./keys.nix);
+        };
+      };
     };
+
+    home-manager = {
+      users = {
+        ${getEnv "ADMIN"} = {
+          programs = {
+            tmux = {
+              enable = true;
+            };
+            htop = {
+              enable = true;
+            };
+            neovim = {
+              enable = true;
+              viAlias = true;
+              vimAlias = true;
+            };
+          };
+        };
+      };
+    };
+
+    environment.systemPackages = with pkgs; [
+      goaccess
+    ];
 
     services = {
       openssh = {
         enable = true;
-        permitRootLogin = "no";
+        permitRootLogin = "prohibit-password";
         passwordAuthentication = false;
       };
 
       sshguard = {
         enable = true;
         blocktime = 900;
-        attack_threshold = 5;
+        attack_threshold = 30;
         # This will block the IP definitely.
-        blacklist_threshold = 10;
+        blacklist_threshold = 50;
+        whitelist = [ (getEnv "LOCAL_IP") ];
       };
 
-      fail2ban.enable = true;
-      searx.enable = true;
+      fail2ban = {
+        enable = true;
+        ignoreIP = [ (getEnv "LOCAL_IP") ];
+      };
+
+      searx = {
+        enable = true;
+        settings = {
+          server.secret_key = (getEnv "SEARX_SECRET_KEY");
+        };
+      };
 
       prometheus = {
         enable = true;
@@ -105,8 +155,9 @@ in {
         ];
       };
 
-      # After deployed, add the dashboards 1860, 6927, abd 405 and you are good
-      # to go.
+      # After deployed, add the dashboards 1860, 6927, and 405 and you are good
+      # to go. 9629 for Fail2ban monitoring. 11074 for a more complete
+      # overview.
       grafana = {
         enable = true;
         # Despite having defined the credentials here, I still had to set admin
@@ -121,6 +172,7 @@ in {
           enable = true;
           # Needs to be type `list of submodules'. See more about datasources
           # in https://grafana.com/docs/grafana/latest/datasources/prometheus/
+          # Still not sure if these data sources are correct.
           datasources = [
             {
               name = "Prometheus";
@@ -128,6 +180,18 @@ in {
               url = "http://localhost:9090";
               # Use direct when accessing Prometheus from the browser.
               # Use proxy when accessing through Grafana.
+              access = "proxy";
+            }
+            {
+              name = "Node";
+              type = "prometheus";
+              url = "http://localhost:9100";
+              access = "proxy";
+            }
+            {
+              name = "Nginx";
+              type = "prometheus";
+              url = "http://localhost:9113";
               access = "proxy";
             }
           ];
@@ -155,19 +219,19 @@ in {
             # As the website is behind Cloudflare, these options are needed to
             # make sure the port 443 is open and, consequently, avoid the 521
             # error.
-            addSSL = true;
+            forceSSL = true;
             # Needs to define this option to avoid "option sslCertificate used
             # but not defined" error when addSSL is set to true.
             enableACME = true;
           };
           "grafana.mrioqueiroz.com" = {
             locations."/".proxyPass = "http://localhost:3000";
-            addSSL = true;
+            forceSSL = true;
             enableACME = true;
           };
           "searx.mrioqueiroz.com" = {
             locations."/".proxyPass = "http://localhost:8888";
-            addSSL = true;
+            forceSSL = true;
             enableACME = true;
           };
           # Close connection without response if trying to access the website
