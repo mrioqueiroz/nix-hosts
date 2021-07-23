@@ -48,7 +48,7 @@ in {
     users = {
       mutableUsers = false;
       users = {
-        "${(getEnv "ADMIN")}" = {
+        "${getEnv "ADMIN"}" = {
           isNormalUser = true;
           # Needed to be able to be able to run sudo without password.
           extraGroups = [ "wheel" ];
